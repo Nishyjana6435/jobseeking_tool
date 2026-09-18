@@ -24,7 +24,7 @@ let cached = { key: "", client: null };
 function redis() {
   const { url, token } = redisCreds();
   const key = `${url}|${token}`;
-  if (!cached.client || cached.key !== key) cached = { key, client: new Redis({ url, token, automaticDeserialization: true }) };
+  if (!cached.client || cached.key !== key) cached = { key, client: new Redis({ url, token, automaticDeserialization: true, cache: "no-store", retry: { retries: 3, backoff: (n) => 300 * 2 ** n } }) };
   return cached.client;
 }
 
@@ -34,6 +34,16 @@ const redisBackend = {
   async setDoc(key, value) { await redis().set(key, value); },
   async getMap(name) { return (await redis().hgetall(name)) || {}; },
   async getMapField(name, id) { return (await redis().hget(name, id)) ?? null; },
+  async getMapFields(name, ids) {
+    if (!ids.length) return {};
+    const out = {};
+    for (let i = 0; i < ids.length; i += 50) {
+      const slice = ids.slice(i, i + 50);
+      const vals = await redis().hmget(name, ...slice);
+      for (const id of slice) if (vals?.[id] != null) out[id] = vals[id];
+    }
+    return out;
+  },
   async patchMap(name, partial) {
     const entries = Object.entries(partial);
     if (!entries.length) return;
@@ -65,6 +75,7 @@ const fileBackend = {
   async setDoc(key, value) { writeFile(key, value); },
   async getMap(name) { return readFile(name, {}); },
   async getMapField(name, id) { return readFile(name, {})[id] ?? null; },
+  async getMapFields(name, ids) { const m = readFile(name, {}); return Object.fromEntries(ids.filter((id) => m[id] != null).map((id) => [id, m[id]])); },
   async patchMap(name, partial) { writeFile(name, { ...readFile(name, {}), ...partial }); },
   async delMapField(name, id) { const m = readFile(name, {}); delete m[id]; writeFile(name, m); },
   async ping() { return "PONG"; },

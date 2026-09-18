@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { client, modelFor } from "./lib/client.js";
 import { truncate } from "./lib/html.js";
-import { loadConfig, loadJobs, loadMatches, patchMatches, requireProfile } from "./lib/store.js";
+import { loadConfig, loadJobs, loadJobsFull, loadMatches, patchMatches, requireProfile } from "./lib/store.js";
 
 const MatchSchema = z.object({
   results: z.array(z.object({
@@ -130,7 +130,8 @@ export async function match({ limit, all = false } = {}) {
     .slice(0, limit ?? cfg.maxJobsToScore ?? 40);
   if (!pending.length) { log("Nothing new to score."); return matches; }
   log(`${pending.length} jobs to score with ${modelFor(cfg)}`);
-  return scoreJobs(pending, profile, cfg);
+  const full = await loadJobsFull(pending.map((j) => j.id));
+  return scoreJobs(pending.map((j) => full[j.id] || j), profile, cfg);
 }
 
 export async function ranked(minScore = 0) {

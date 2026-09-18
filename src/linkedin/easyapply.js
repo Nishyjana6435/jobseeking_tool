@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getBrowser, pause, isAuthWall } from "./browser.js";
 import { answerQuestion } from "./answers.js";
-import { loadJobs, loadTrack, patchTracker, requireProfile, loadConfig, ROOT } from "../lib/store.js";
+import { loadJobsFull, loadTrack, patchTracker, requireProfile, loadConfig, ROOT } from "../lib/store.js";
 import { appDir } from "../cv.js";
 import { log } from "../lib/log.js";
 
@@ -237,7 +237,7 @@ export async function easyApply(job, { submit = false } = {}) {
 export async function easyApplyMany(ids, { submit = false } = {}) {
   const cfg = await loadConfig();
   const cap = cfg.easyApplyMaxPerRun || 10;
-  const jobs = await loadJobs();
+  const jobs = await loadJobsFull(ids.slice(0, cap));
   const results = [];
   for (const id of ids.slice(0, cap)) {
     const job = jobs[id];

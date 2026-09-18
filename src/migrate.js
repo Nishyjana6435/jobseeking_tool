@@ -1,7 +1,7 @@
 // One-off: copy the local JSON data (data/*.json, applications/*/job.json, cv.json, cv.pdf) into the configured database.
 import fs from "node:fs";
 import path from "node:path";
-import { ROOT, hasRedis } from "./lib/store.js";
+import { ROOT, hasRedis, patchJobs } from "./lib/store.js";
 import { db } from "./lib/db.js";
 
 const LOCAL_DATA = path.join(ROOT, "data");
@@ -33,7 +33,7 @@ export async function migrate({ log = console.log } = {}) {
     }
   }
 
-  await target.patchMap("jobs", jobs); log(`jobs: ${Object.keys(jobs).length}`);
+  await patchJobs(jobs); log(`jobs: ${Object.keys(jobs).length} (lean records + descriptions)`);
   await target.patchMap("matches", matches); log(`matches: ${Object.keys(matches).length}`);
   await target.patchMap("tracker", tracker); log(`tracker: ${Object.keys(tracker).length}`);
   await target.patchMap("cvs", cvs); log(`tailored cvs: ${Object.keys(cvs).length}`);

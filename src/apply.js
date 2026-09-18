@@ -6,7 +6,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { client, modelFor } from "./lib/client.js";
 import { truncate } from "./lib/html.js";
-import { APPS_DIR, loadConfig, loadJobs, loadMatches, requireProfile, loadTrack, patchTracker, slugify, writeJson } from "./lib/store.js";
+import { APPS_DIR, loadConfig, loadJobsFull, loadMatches, requireProfile, loadTrack, patchTracker, slugify, writeJson } from "./lib/store.js";
 import { systemPrompt } from "./match.js";
 
 const MaterialsSchema = z.object({
@@ -110,7 +110,7 @@ export function openUrl(url) {
 export async function applyTo(jobIds, { open = true } = {}) {
   const cfg = await loadConfig();
   const profile = await requireProfile();
-  const jobs = await loadJobs();
+  const jobs = await loadJobsFull(jobIds);
   const matches = await loadMatches();
   for (const id of jobIds) {
     const job = jobs[id];
