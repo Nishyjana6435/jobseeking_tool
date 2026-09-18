@@ -1,3 +1,6 @@
+
+<img width="3456" height="2234" alt="3AF7CCCB-F738-412C-A0BB-8CF4664418F5" src="https://github.com/user-attachments/assets/9fbac926-737a-4f07-bd3c-a7efc386fb33" />
+
 # job-apply-tool
 
 Next.js dashboard plus CLI that reads your CV, pulls jobs from free public job boards, scores each one against your actual skills with Claude, generates ready-to-paste application materials (cover letter, tailored CV bullets, screening-question answers), emails recruiters with one click, and tracks every application through to offer.
