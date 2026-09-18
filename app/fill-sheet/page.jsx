@@ -14,10 +14,10 @@ function Field({ label, value }) {
   );
 }
 
-export default function FillSheetPage() {
-  const profile = loadProfile();
+export default async function FillSheetPage() {
+  const profile = await loadProfile();
   if (!profile) return <div className="panel p-4 text-sm text-gray-300">No profile yet. <Link className="underline" href="/profile">Upload your CV</Link>.</div>;
-  const sheet = buildFillSheet(profile, loadConfig());
+  const sheet = buildFillSheet(profile, await loadConfig());
   return (
     <div className="space-y-4">
       <div>

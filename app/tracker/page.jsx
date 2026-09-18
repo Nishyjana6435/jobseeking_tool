@@ -5,8 +5,8 @@ import StatusSelect from "../components/StatusSelect.jsx";
 
 const COLS = ["saved", "prepared", "applied", "interview", "offer", "rejected"];
 
-export default function TrackerPage() {
-  const { rows } = getAll();
+export default async function TrackerPage() {
+  const { rows } = await getAll();
   const tracked = rows.filter((r) => r.status !== "new");
   return (
     <div className="space-y-4">

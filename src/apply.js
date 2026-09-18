@@ -4,9 +4,9 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { client, MODEL } from "./lib/client.js";
+import { client, modelFor } from "./lib/client.js";
 import { truncate } from "./lib/html.js";
-import { APPS_DIR, loadConfig, loadJobs, loadMatches, requireProfile, loadTracker, saveTracker, slugify, writeJson } from "./lib/store.js";
+import { APPS_DIR, loadConfig, loadJobs, loadMatches, requireProfile, loadTrack, patchTracker, slugify, writeJson } from "./lib/store.js";
 import { systemPrompt } from "./match.js";
 
 const MaterialsSchema = z.object({
@@ -22,11 +22,10 @@ const MaterialsSchema = z.object({
 
 export async function prepareApplication(job, matchInfo, profile, cfg) {
   const dir = path.join(APPS_DIR, `${slugify(job.company)}--${slugify(job.title)}`);
-  fs.mkdirSync(dir, { recursive: true });
   log(`Preparing materials for ${job.title} @ ${job.company}...`);
 
   const response = await client.messages.parse({
-    model: MODEL,
+    model: modelFor(cfg),
     max_tokens: 16000,
     output_config: { effort: "high", format: zodOutputFormat(MaterialsSchema) },
     system: systemPrompt(profile, cfg),
@@ -87,16 +86,19 @@ ${m.screeningAnswers.map((q) => `**${q.question}**\n\n${q.answer}`).join("\n\n")
 
 ${m.linkedinNote}
 `;
-  fs.writeFileSync(path.join(dir, "application.md"), md);
-  fs.writeFileSync(path.join(dir, "cover-letter.txt"), m.coverLetter);
-  writeJson(path.join(dir, "job.json"), { job, match: matchInfo, materials: m });
+  // Local copies for convenience; the materials themselves live in the tracker entry so the hosted dashboard can show them.
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "application.md"), md);
+    fs.writeFileSync(path.join(dir, "cover-letter.txt"), m.coverLetter);
+    writeJson(path.join(dir, "job.json"), { job, match: matchInfo, materials: m });
+  } catch (e) { log(`  (could not write local files: ${e.message})`); }
 
-  const tracker = loadTracker();
-  tracker[job.id] = {
-    title: job.title, company: job.company, url: job.url, score: matchInfo.score,
-    status: "prepared", dir, preparedAt: new Date().toISOString(),
-  };
-  saveTracker(tracker);
+  const prev = (await loadTrack(job.id)) || {};
+  await patchTracker({ [job.id]: {
+    title: job.title, company: job.company, url: job.url, ...prev, score: matchInfo.score,
+    status: "prepared", dir, materials: m, preparedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  } });
   return dir;
 }
 
@@ -106,10 +108,10 @@ export function openUrl(url) {
 }
 
 export async function applyTo(jobIds, { open = true } = {}) {
-  const cfg = loadConfig();
-  const profile = requireProfile();
-  const jobs = loadJobs();
-  const matches = loadMatches();
+  const cfg = await loadConfig();
+  const profile = await requireProfile();
+  const jobs = await loadJobs();
+  const matches = await loadMatches();
   for (const id of jobIds) {
     const job = jobs[id];
     if (!job) { log(`Unknown job id ${id}`); continue; }

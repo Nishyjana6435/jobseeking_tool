@@ -20,24 +20,24 @@ export function startTask(task, params = {}) {
 
   (async () => {
     try {
-      const cfg = loadConfig();
+      const cfg = await loadConfig();
       if (task === "search") await search();
       else if (task === "match") await match({ limit: params.limit ? Number(params.limit) : undefined });
       else if (task === "prepare") {
         const min = Number(params.min ?? cfg.minScoreToPrepare ?? 70);
-        const tracker = loadTracker();
+        const tracker = await loadTracker();
         const ids = params.ids?.length
           ? params.ids
-          : ranked(min).filter((r) => r.match.locationOk && !tracker[r.id]).slice(0, Number(params.top ?? 5)).map((r) => r.id);
+          : (await ranked(min)).filter((r) => r.match.locationOk && !tracker[r.id]).slice(0, Number(params.top ?? 5)).map((r) => r.id);
         if (!ids.length) log(`No unprepared jobs with score >= ${min}.`);
         await applyTo(ids, { open: false });
       } else if (task === "easyapply") {
         const { easyApplyMany } = await import("../linkedin/easyapply.js");
         const done = ["applied", "interview", "offer", "rejected", "skipped"];
-        const t = loadTracker();
+        const t = await loadTracker();
         const ids = params.ids?.length
           ? params.ids
-          : ranked(Number(params.min ?? cfg.minScoreToPrepare ?? 70)).filter((r) => r.match.locationOk && r.source === "linkedin" && !done.includes(t[r.id]?.status)).slice(0, Number(params.top ?? 5)).map((r) => r.id);
+          : (await ranked(Number(params.min ?? cfg.minScoreToPrepare ?? 70))).filter((r) => r.match.locationOk && r.source === "linkedin" && !done.includes(t[r.id]?.status)).slice(0, Number(params.top ?? 5)).map((r) => r.id);
         if (!ids.length) log("No eligible LinkedIn jobs to apply to.");
         const results = await easyApplyMany(ids, { submit: !!params.submit });
         log(`Done: ${results.map((r) => r.result).join(", ") || "nothing"}`);

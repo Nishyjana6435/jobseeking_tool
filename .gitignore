@@ -3,3 +3,9 @@ node_modules/
 data/
 applications/
 cv.pdf
+.vercel
+.env*
+.next
+.vercel/
+.env.local
+.env*.local

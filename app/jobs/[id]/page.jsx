@@ -4,7 +4,10 @@ import { getJob } from "@/src/lib/data.js";
 import JobActions from "@/app/components/JobActions.jsx";
 import CopyButton from "@/app/components/CopyButton.jsx";
 import { ScoreBadge, StatusBadge, LocBadge } from "@/app/components/Badges.jsx";
-import { loadCv } from "@/src/cv.js";
+import { loadCv, loadCvFile, requireProfile } from "@/src/lib/store.js";
+import { IS_VERCEL } from "@/src/lib/env.js";
+import { smtpConfigured, defaultEmailBody } from "@/src/lib/mail.js";
+import EmailPanel from "@/app/components/EmailPanel.jsx";
 
 function Section({ title, text, children }) {
   return (
@@ -17,10 +20,13 @@ function Section({ title, text, children }) {
 
 export default async function JobPage({ params }) {
   const { id } = await params;
-  const job = getJob(decodeURIComponent(id));
+  const job = await getJob(decodeURIComponent(id));
   if (!job) notFound();
   const m = job.match;
   const mat = job.materials;
+  const [cv, cvFile, profile] = await Promise.all([loadCv(job.id), loadCvFile(), requireProfile().catch(() => null)]);
+  const draft = mat && profile ? { subject: mat.emailSubject, body: defaultEmailBody(mat, profile) } : null;
+  const attachment = cv ? "tailored CV (.docx)" : cvFile ? `your uploaded CV (${cvFile.name})` : "your CV file";
 
   return (
     <div className="space-y-4">
@@ -33,7 +39,9 @@ export default async function JobPage({ params }) {
         <div className="text-sm text-gray-400">{job.company} · {job.location} · {job.jobType || ""} {job.salary ? `· ${job.salary}` : ""} · via {job.source}{job.postedAt ? ` · posted ${new Date(job.postedAt).toLocaleDateString()}` : ""}</div>
       </div>
 
-      <JobActions job={{ id: job.id, url: job.url, status: job.status, match: m, materials: mat, track: job.track, hasCv: !!loadCv(job), isLinkedIn: job.source === "linkedin" || /linkedin\.com\/jobs\/view\//.test(job.url) }} />
+      <JobActions hosted={IS_VERCEL} job={{ id: job.id, url: job.url, status: job.status, match: m, materials: mat, track: job.track, hasCv: !!cv, isLinkedIn: job.source === "linkedin" || /linkedin\.com\/jobs\/view\//.test(job.url) }} />
+
+      <EmailPanel jobId={job.id} emails={job.emails} draft={draft} smtpReady={smtpConfigured()} attachment={attachment} sent={job.track?.emailedAt ? job.track : null} />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <div className="space-y-4">
@@ -73,7 +81,8 @@ export default async function JobPage({ params }) {
             <section className="panel p-4 text-xs text-gray-400 space-y-1">
               <h3 className="text-sm font-semibold text-gray-200">History</h3>
               {Object.entries(job.track).filter(([k]) => k.endsWith("At")).sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => <div key={k}>{k.replace(/At$/, "")}: {new Date(v).toLocaleString()}</div>)}
-              {job.track.dir && <div className="pt-1 break-all">Files: {job.track.dir}</div>}
+              {job.track.emailedTo && <div className="pt-1 break-all">Emailed: {job.track.emailedTo} · {job.track.emailAttachment}</div>}
+              {job.track.dir && !IS_VERCEL && <div className="pt-1 break-all">Files: {job.track.dir}</div>}
             </section>
           )}
           <section className="panel p-4 text-xs text-gray-400"><div className="mb-1 text-gray-300">Tags</div>{job.tags?.join(", ") || "none"}</section>

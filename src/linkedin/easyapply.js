@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getBrowser, pause, isAuthWall } from "./browser.js";
 import { answerQuestion } from "./answers.js";
-import { loadJobs, loadTracker, saveTracker, requireProfile, loadConfig, ROOT } from "../lib/store.js";
+import { loadJobs, loadTrack, patchTracker, requireProfile, loadConfig, ROOT } from "../lib/store.js";
 import { appDir } from "../cv.js";
 import { log } from "../lib/log.js";
 
@@ -146,18 +146,17 @@ async function errorsIn(modal) {
  * Returns { result: 'submitted' | 'ready_to_submit' | 'external' | 'already_applied' | 'not_easy_apply' | 'error', ... }
  */
 export async function easyApply(job, { submit = false } = {}) {
-  const cfg = loadConfig();
-  const profile = requireProfile();
+  const cfg = await loadConfig();
+  const profile = await requireProfile();
   const cvPath = cvFileFor(job, cfg);
   const ctx = await getBrowser({ headless: false });
   const page = await ctx.newPage();
   const shot = async (name) => {
     try { const dir = appDir(job); fs.mkdirSync(dir, { recursive: true }); await page.screenshot({ path: path.join(dir, `${name}.png`) }); } catch {}
   };
-  const mark = (status, extra = {}) => {
-    const t = loadTracker();
-    t[job.id] = { title: job.title, company: job.company, url: job.url, ...(t[job.id] || {}), status, [`${status}At`]: new Date().toISOString(), updatedAt: new Date().toISOString(), ...extra };
-    saveTracker(t);
+  const mark = async (status, extra = {}) => {
+    const prev = (await loadTrack(job.id)) || {};
+    await patchTracker({ [job.id]: { title: job.title, company: job.company, url: job.url, ...prev, status, [`${status}At`]: new Date().toISOString(), updatedAt: new Date().toISOString(), ...extra } });
   };
 
   try {
@@ -168,7 +167,7 @@ export async function easyApply(job, { submit = false } = {}) {
 
     const applyBtn = page.locator(".jobs-apply-button, button[aria-label*='Easy Apply' i], button:has-text('Easy Apply')").first();
     if (!(await applyBtn.count())) {
-      if (await page.locator("text=/Applied\\s+\\d|You applied|Application submitted/i").count()) { mark("applied", { via: "linkedin" }); return { result: "already_applied" }; }
+      if (await page.locator("text=/Applied\\s+\\d|You applied|Application submitted/i").count()) { await mark("applied", { via: "linkedin" }); return { result: "already_applied" }; }
       await shot("no-apply-button");
       return { result: "not_easy_apply", reason: "No apply button found; the job may be closed" };
     }
@@ -198,14 +197,14 @@ export async function easyApply(job, { submit = false } = {}) {
         if (!submit) {
           await shot("ready-to-submit");
           log("  Ready to submit. Review mode: the window stays open for you to check and press Submit.");
-          mark("prepared", { via: "linkedin-easy-apply", readyToSubmit: true });
+          await mark("prepared", { via: "linkedin-easy-apply", readyToSubmit: true });
           return { result: "ready_to_submit" };
         }
         await submitBtn.click();
         await pause(2500, 4000);
         const ok = await page.locator("text=/application was sent|Application sent|application was submitted/i").count();
         await shot("submitted");
-        mark("applied", { via: "linkedin-easy-apply" });
+        await mark("applied", { via: "linkedin-easy-apply" });
         log(ok ? "  Submitted. LinkedIn confirmed." : "  Submitted (no confirmation text seen; check LinkedIn).");
         const dismiss = page.locator('button[aria-label="Dismiss"], button:has-text("Done")').first();
         if (await dismiss.count()) await dismiss.click().catch(() => {});
@@ -236,9 +235,9 @@ export async function easyApply(job, { submit = false } = {}) {
 }
 
 export async function easyApplyMany(ids, { submit = false } = {}) {
-  const cfg = loadConfig();
+  const cfg = await loadConfig();
   const cap = cfg.easyApplyMaxPerRun || 10;
-  const jobs = loadJobs();
+  const jobs = await loadJobs();
   const results = [];
   for (const id of ids.slice(0, cap)) {
     const job = jobs[id];

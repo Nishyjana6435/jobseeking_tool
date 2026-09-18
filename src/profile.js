@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { client, MODEL } from "./lib/client.js";
-import { FILES, ROOT, loadConfig, writeJson } from "./lib/store.js";
+import { client, modelFor } from "./lib/client.js";
+import { ROOT, loadConfig, saveProfile } from "./lib/store.js";
 
 export const ProfileSchema = z.object({
   name: z.string(),
@@ -45,6 +45,7 @@ export const ProfileSchema = z.object({
 
 export async function buildProfile(cvPath) {
   const abs = path.resolve(ROOT, cvPath);
+  const MODEL = modelFor(await loadConfig());
   const data = fs.readFileSync(abs).toString("base64");
   const ext = path.extname(abs).toLowerCase();
 
@@ -68,15 +69,15 @@ export async function buildProfile(cvPath) {
   if (!response.parsed_output) throw new Error("Could not parse profile from model output");
 
   const profile = { ...response.parsed_output, sourceCv: abs, extractedAt: new Date().toISOString() };
-  writeJson(FILES.profile, profile);
+  await saveProfile(profile);
   return profile;
 }
 
 if (process.argv[1] && process.argv[1].endsWith("profile.js")) {
-  const cv = process.argv[2] || loadConfig().cvPath || "./cv.pdf";
+  const cv = process.argv[2] || (await loadConfig()).cvPath || "./cv.pdf";
   const p = await buildProfile(cv);
   console.log(`\n${p.name} - ${p.headline}`);
   console.log(`${p.yearsExperience} yrs, ${p.seniority}. ${p.allKeywords.length} keywords, ${p.experience.length} roles, ${p.projects.length} projects.`);
   console.log(`Ideal roles: ${p.idealRoles.join(", ")}`);
-  console.log(`Saved to ${FILES.profile}`);
+  console.log("Profile saved.");
 }

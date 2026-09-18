@@ -1,63 +1,64 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { db } from "./db.js";
+import { ROOT, DATA_DIR, APPS_DIR, IS_VERCEL } from "./env.js";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-export const ROOT = path.resolve(here, "..", "..");
-export const DATA_DIR = path.join(ROOT, "data");
-export const APPS_DIR = path.join(ROOT, "applications");
+export { ROOT, DATA_DIR, APPS_DIR, IS_VERCEL };
+export { backendName, hasRedis } from "./db.js";
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(APPS_DIR, { recursive: true });
-
+// Plain file helpers for local artefacts (application.md, cv.docx, screenshots). Never called at import time.
 export function readJson(file, fallback) {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fallback; }
 }
-
 export function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
-export const FILES = {
-  profile: path.join(DATA_DIR, "profile.json"),
-  jobs: path.join(DATA_DIR, "jobs.json"),
-  matches: path.join(DATA_DIR, "matches.json"),
-  tracker: path.join(DATA_DIR, "tracker.json"),
-};
-
-export function loadConfig() {
-  return readJson(path.join(ROOT, "config.json"), {});
+// Config: config.json in the repo is the seed; once saved from Settings the stored copy wins.
+const fileConfig = () => readJson(path.join(ROOT, "config.json"), {});
+export async function loadConfig() {
+  return (await db().getDoc("config")) || fileConfig();
+}
+export async function saveConfig(cfg) {
+  await db().setDoc("config", cfg);
 }
 
-export function loadProfile() {
-  return readJson(FILES.profile, null);
-}
-
-export function requireProfile() {
-  const p = loadProfile();
+export const loadProfile = () => db().getDoc("profile");
+export const saveProfile = (p) => db().setDoc("profile", p);
+export async function requireProfile() {
+  const p = await loadProfile();
   if (!p) throw new Error("No profile yet. Upload a CV on the Profile page or run: node src/cli.js profile");
   return p;
 }
 
-export function saveConfig(cfg) {
-  writeJson(path.join(ROOT, "config.json"), cfg);
-}
+export const loadAnswers = async () => (await db().getDoc("answers")) || {};
+export const saveAnswers = (a) => db().setDoc("answers", a);
+
+export const loadJobs = () => db().getMap("jobs");
+export const loadJob = (id) => db().getMapField("jobs", id);
+export const saveJobs = (jobs) => db().patchMap("jobs", jobs);
+export const patchJobs = (partial) => db().patchMap("jobs", partial);
+
+export const loadMatches = () => db().getMap("matches");
+export const loadMatch = (id) => db().getMapField("matches", id);
+export const saveMatches = (m) => db().patchMap("matches", m);
+export const patchMatches = (partial) => db().patchMap("matches", partial);
+
+export const loadTracker = () => db().getMap("tracker");
+export const loadTrack = (id) => db().getMapField("tracker", id);
+export const saveTracker = (t) => db().patchMap("tracker", t);
+export const patchTracker = (partial) => db().patchMap("tracker", partial);
+
+export const loadCv = (jobId) => db().getMapField("cvs", jobId);
+export const saveCv = (jobId, cv) => db().patchMap("cvs", { [jobId]: cv });
 
 export const STATUSES = ["saved", "prepared", "applied", "interview", "offer", "rejected", "skipped"];
-
-
-export const loadJobs = () => readJson(FILES.jobs, {});
-export const saveJobs = (jobs) => writeJson(FILES.jobs, jobs);
-export const loadMatches = () => readJson(FILES.matches, {});
-export const saveMatches = (m) => writeJson(FILES.matches, m);
-export const loadTracker = () => readJson(FILES.tracker, {});
-export const saveTracker = (t) => writeJson(FILES.tracker, t);
 
 export function slugify(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 80);
 }
+
+// The uploaded base CV, kept in the database so the hosted app can attach it to emails. { name, mime, base64, size, uploadedAt }
+export const loadCvFile = () => db().getDoc("cvfile");
+export const saveCvFile = (f) => db().setDoc("cvfile", f);

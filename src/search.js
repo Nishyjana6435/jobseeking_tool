@@ -1,6 +1,6 @@
 import { log } from "./lib/log.js";
 import { fetchAll } from "./sources/index.js";
-import { loadConfig, loadJobs, saveJobs, requireProfile } from "./lib/store.js";
+import { loadConfig, loadJobs, patchJobs, requireProfile } from "./lib/store.js";
 
 function keywordHits(job, keywords) {
   const hay = `${job.title} ${job.tags.join(" ")} ${job.description}`.toLowerCase();
@@ -33,10 +33,10 @@ export function prefilter(jobs, profile, cfg) {
 }
 
 export async function search() {
-  const cfg = loadConfig();
-  const profile = requireProfile();
+  const cfg = await loadConfig();
+  const profile = await requireProfile();
   log(`Fetching from ${cfg.sources.join(", ")} for terms: ${cfg.searchTerms.join(", ")}`);
-  const jobs = loadJobs();
+  const jobs = await loadJobs();
   const raw = await fetchAll(cfg.sources, cfg.searchTerms, {
     known: new Set(Object.keys(jobs)),
     location: cfg.country || "Sri Lanka",
@@ -48,11 +48,12 @@ export async function search() {
   const unique = raw.filter((j) => (seen.has(j.id) ? false : seen.add(j.id)));
   const kept = prefilter(unique, profile, cfg);
 
-  let added = 0;
+  const fresh = {};
   for (const j of kept) {
-    if (!jobs[j.id]) { jobs[j.id] = { ...j, foundAt: new Date().toISOString() }; added++; }
+    if (!jobs[j.id]) fresh[j.id] = jobs[j.id] = { ...j, foundAt: new Date().toISOString() };
   }
-  saveJobs(jobs);
+  const added = Object.keys(fresh).length;
+  await patchJobs(fresh);
   log(`\n${raw.length} fetched, ${unique.length} unique, ${kept.length} passed prefilter, ${added} new. Total stored: ${Object.keys(jobs).length}`);
   return kept;
 }

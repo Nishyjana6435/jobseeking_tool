@@ -3,7 +3,7 @@ import { buildProfile } from "./profile.js";
 import { search } from "./search.js";
 import { match, ranked } from "./match.js";
 import { applyTo, openUrl } from "./apply.js";
-import { loadConfig, loadTracker, saveTracker, loadJobs } from "./lib/store.js";
+import { loadConfig, loadTracker, loadTrack, patchTracker, loadJob, backendName } from "./lib/store.js";
 
 const [cmd, ...args] = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
@@ -19,7 +19,7 @@ function printRanked(rows) {
 
 switch (cmd) {
   case "profile": {
-    const p = await buildProfile(args[0] || loadConfig().cvPath);
+    const p = await buildProfile(args[0] || (await loadConfig()).cvPath);
     console.log(`${p.name} - ${p.headline}\n${p.allKeywords.length} keywords. Ideal roles: ${p.idealRoles.join(", ")}`);
     break;
   }
@@ -27,42 +27,41 @@ switch (cmd) {
   case "match": await match({ limit: flag("limit") ? Number(flag("limit")) : undefined }); break;
   case "list": {
     const min = Number(flag("min") ?? 0);
-    printRanked(ranked(min).slice(0, Number(flag("top") ?? 50)));
+    printRanked((await ranked(min)).slice(0, Number(flag("top") ?? 50)));
     break;
   }
   case "show": {
-    const jobs = loadJobs();
-    const j = jobs[args[0]];
+    const j = await loadJob(args[0]);
     if (!j) { console.error("Unknown job id"); process.exit(1); }
     console.log(`${j.title} @ ${j.company}\n${j.url}\n${j.location} | ${j.salary || ""}\n\n${j.description.slice(0, 4000)}`);
     break;
   }
   case "apply": {
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     let ids = args.filter((a) => !a.startsWith("--") && a !== flag("top") && a !== flag("min"));
     if (has("top") || !ids.length) {
       const min = Number(flag("min") ?? cfg.minScoreToPrepare ?? 70);
-      const tracker = loadTracker();
-      ids = ranked(min).filter((r) => r.match.locationOk && !tracker[r.id]).slice(0, Number(flag("top") ?? 5)).map((r) => r.id);
+      const tracker = await loadTracker();
+      ids = (await ranked(min)).filter((r) => r.match.locationOk && !tracker[r.id]).slice(0, Number(flag("top") ?? 5)).map((r) => r.id);
       if (!ids.length) { console.log(`No unprepared jobs with score >= ${min}.`); break; }
     }
     await applyTo(ids, { open: !has("no-open") });
     break;
   }
   case "run": {
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     await search();
     await match({});
-    printRanked(ranked(cfg.minScoreToPrepare ?? 70).slice(0, 20));
+    printRanked((await ranked(cfg.minScoreToPrepare ?? 70)).slice(0, 20));
     if (has("prepare")) {
-      const tracker = loadTracker();
-      const ids = ranked(cfg.minScoreToPrepare ?? 70).filter((r) => r.match.locationOk && !tracker[r.id]).slice(0, Number(flag("top") ?? 5)).map((r) => r.id);
+      const tracker = await loadTracker();
+      const ids = (await ranked(cfg.minScoreToPrepare ?? 70)).filter((r) => r.match.locationOk && !tracker[r.id]).slice(0, Number(flag("top") ?? 5)).map((r) => r.id);
       await applyTo(ids, { open: !has("no-open") });
     }
     break;
   }
   case "status": {
-    const t = loadTracker();
+    const t = await loadTracker();
     const rows = Object.entries(t).sort((a, b) => b[1].score - a[1].score);
     if (!rows.length) { console.log("Nothing tracked yet."); break; }
     for (const [id, r] of rows) console.log(`${String(r.score).padEnd(5)}${r.status.padEnd(10)}${r.title.slice(0, 40).padEnd(41)}${(r.company || "").slice(0, 20).padEnd(21)}${id}`);
@@ -70,15 +69,15 @@ switch (cmd) {
   }
   case "mark": {
     const [id, status] = args;
-    const t = loadTracker();
-    if (!t[id]) { console.error("Not tracked"); process.exit(1); }
-    t[id].status = status || "applied";
-    t[id][`${t[id].status}At`] = new Date().toISOString();
-    saveTracker(t);
-    console.log(`${id} -> ${t[id].status}`);
+    const entry = await loadTrack(id);
+    if (!entry) { console.error("Not tracked"); process.exit(1); }
+    entry.status = status || "applied";
+    entry[`${entry.status}At`] = entry.updatedAt = new Date().toISOString();
+    await patchTracker({ [id]: entry });
+    console.log(`${id} -> ${entry.status}`);
     break;
   }
-  case "open": openUrl(loadJobs()[args[0]]?.url || args[0]); break;
+  case "open": openUrl((await loadJob(args[0]))?.url || args[0]); break;
   case "import": {
     const { importJobFromUrl } = await import("./import.js");
     const j = await importJobFromUrl(args[0]);
@@ -90,10 +89,11 @@ switch (cmd) {
     const { buildDocx } = await import("./lib/docx.js");
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const job = loadJobs()[args[0]];
+    const job = await loadJob(args[0]);
     if (!job) { console.error("Unknown job id"); process.exit(1); }
     const cv = await generateTailoredCv(job, { instructions: flag("notes") || "" });
     const out = path.join(appDir(job), "cv.docx");
+    fs.mkdirSync(appDir(job), { recursive: true });
     fs.writeFileSync(out, await buildDocx(cv));
     console.log(`Saved ${out}\n${cv.changeNotes.map((n) => `- ${n}`).join("\n")}`);
     break;
@@ -107,14 +107,14 @@ switch (cmd) {
   case "easy-apply": {
     const { easyApplyMany } = await import("./linkedin/easyapply.js");
     const { closeBrowser } = await import("./linkedin/browser.js");
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     const submit = has("submit");
     let ids = args.filter((a) => !a.startsWith("--") && a !== flag("top") && a !== flag("min"));
     if (has("top") || !ids.length) {
       const min = Number(flag("min") ?? cfg.minScoreToPrepare ?? 70);
-      const t = loadTracker();
+      const t = await loadTracker();
       const done = ["applied", "interview", "offer", "rejected", "skipped"];
-      ids = ranked(min).filter((r) => r.match.locationOk && r.source === "linkedin" && !done.includes(t[r.id]?.status)).slice(0, Number(flag("top") ?? 5)).map((r) => r.id);
+      ids = (await ranked(min)).filter((r) => r.match.locationOk && r.source === "linkedin" && !done.includes(t[r.id]?.status)).slice(0, Number(flag("top") ?? 5)).map((r) => r.id);
     }
     if (!ids.length) { console.log("No eligible LinkedIn jobs."); break; }
     console.log(`${submit ? "AUTO-SUBMIT" : "REVIEW"} mode for ${ids.length} job(s).${submit ? "" : " Each application stops at the Submit button for you to check."}`);
@@ -130,15 +130,25 @@ switch (cmd) {
   case "fillsheet": {
     const { buildFillSheet } = await import("./lib/fillsheet.js");
     const { loadProfile } = await import("./lib/store.js");
-    const sheet = buildFillSheet(loadProfile(), loadConfig());
+    const sheet = buildFillSheet(await loadProfile(), await loadConfig());
     const print = (title, fields) => { console.log(`\n## ${title}`); for (const [l, v] of fields) console.log(`${l}: ${v || "(not on CV)"}`); };
     print("Personal", sheet.personal);
     sheet.work.forEach((w, i) => print(`Work ${i + 1}`, w.fields));
     sheet.education.forEach((e, i) => print(`Education ${i + 1}`, e.fields));
     break;
   }
+  case "migrate": {
+    const { migrate } = await import("./migrate.js");
+    await migrate();
+    break;
+  }
+  case "db": {
+    const { db } = await import("./lib/db.js");
+    console.log(`backend: ${backendName()}; ping: ${await db().ping()}`);
+    break;
+  }
   default:
-    console.log(`job-apply-tool
+    console.log(`job-apply-tool  (storage: ${backendName()})
 
   node src/cli.js profile [cv.pdf]        Extract structured profile from your CV
   node src/cli.js search                  Fetch jobs from configured boards and prefilter by CV keywords
@@ -156,5 +166,7 @@ switch (cmd) {
   node src/cli.js fillsheet               Print CV fields shaped for application forms
   node src/cli.js linkedin-login          One-time LinkedIn login in a dedicated Chrome profile
   node src/cli.js easy-apply <jobId...> | --top 5 [--min 75] [--submit]
-                                          Fill LinkedIn Easy Apply forms; stops at Submit unless --submit`);
+                                          Fill LinkedIn Easy Apply forms; stops at Submit unless --submit
+  node src/cli.js migrate                 Copy local data/ and applications/ into the configured database
+  node src/cli.js db                      Show which storage backend is active`);
 }

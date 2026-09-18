@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { client, MODEL } from "./lib/client.js";
+import { client, modelFor } from "./lib/client.js";
 import { truncate } from "./lib/html.js";
-import { APPS_DIR, loadJobs, loadMatches, loadTracker, saveTracker, requireProfile, loadConfig, slugify, writeJson, readJson } from "./lib/store.js";
+import { APPS_DIR, loadJob, loadMatch, loadTrack, patchTracker, requireProfile, loadConfig, slugify, writeJson, loadCv as loadStoredCv, saveCv as saveStoredCv } from "./lib/store.js";
 import { systemPrompt } from "./match.js";
 import { log } from "./lib/log.js";
 
@@ -32,25 +32,22 @@ export function appDir(job) {
   return path.join(APPS_DIR, `${slugify(job.company)}--${slugify(job.title)}`);
 }
 
-export function loadCv(job) {
-  return readJson(path.join(appDir(job), "cv.json"), null);
-}
+export const loadCv = (job) => loadStoredCv(job.id);
 
-export function saveCv(job, cv) {
+export async function saveCv(job, cv) {
   const dir = appDir(job);
-  fs.mkdirSync(dir, { recursive: true });
-  writeJson(path.join(dir, "cv.json"), cv);
-  const t = loadTracker();
-  const m = loadMatches()[job.id];
-  t[job.id] = { title: job.title, company: job.company, url: job.url, score: m?.score ?? null, status: "saved", ...(t[job.id] || {}), cvDir: dir, cvUpdatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-  saveTracker(t);
+  await saveStoredCv(job.id, cv);
+  try { writeJson(path.join(dir, "cv.json"), cv); } catch {} // local copy only
+  const [prev, m] = await Promise.all([loadTrack(job.id), loadMatch(job.id)]);
+  await patchTracker({ [job.id]: { title: job.title, company: job.company, url: job.url, score: m?.score ?? null, status: "saved", ...(prev || {}), cvDir: dir, cvUpdatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } });
   return dir;
 }
 
 export async function generateTailoredCv(job, { instructions = "" } = {}) {
-  const profile = requireProfile();
-  const cfg = loadConfig();
-  const m = loadMatches()[job.id];
+  const profile = await requireProfile();
+  const cfg = await loadConfig();
+  const m = await loadMatch(job.id);
+  const MODEL = modelFor(cfg);
   log(`Tailoring CV for ${job.title} @ ${job.company}...`);
   const response = await client.messages.parse({
     model: MODEL,
@@ -88,12 +85,12 @@ ${truncate(job.description, 12000)}`,
     certifications: profile.certifications,
   };
   const cv = { ...response.parsed_output, ...facts, jobId: job.id, jobTitle: job.title, company: job.company, generatedAt: new Date().toISOString(), instructions, model: MODEL };
-  saveCv(job, cv);
+  await saveCv(job, cv);
   return cv;
 }
 
 if (process.argv[1] && process.argv[1].endsWith("cv.js")) {
-  const job = loadJobs()[process.argv[2]];
+  const job = await loadJob(process.argv[2]);
   if (!job) { console.error("Unknown job id"); process.exit(1); }
   const cv = await generateTailoredCv(job, { instructions: process.argv[3] || "" });
   console.log(`Saved ${path.join(appDir(job), "cv.json")}\n${cv.changeNotes.map((n) => `- ${n}`).join("\n")}`);

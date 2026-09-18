@@ -1,14 +1,11 @@
-import path from "node:path";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { client, MODEL } from "../lib/client.js";
-import { DATA_DIR, readJson, writeJson, loadConfig } from "../lib/store.js";
+import { client, modelFor } from "../lib/client.js";
+import { loadConfig, loadAnswers, saveAnswers } from "../lib/store.js";
 import { systemPrompt } from "../match.js";
 import { log } from "../lib/log.js";
 
-const FILE = path.join(DATA_DIR, "answers.json");
-export const loadAnswers = () => readJson(FILE, {});
-export const saveAnswers = (a) => writeJson(FILE, a);
+export { loadAnswers, saveAnswers };
 export const normalize = (q) => q.toLowerCase().replace(/\*|\(required\)|required/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
 const AnswerSchema = z.object({
@@ -40,9 +37,9 @@ function builtins(profile, cfg) {
 }
 
 export async function answerQuestion({ question, options = [], type = "text", job, profile, extra = "" }) {
-  const cfg = loadConfig();
+  const cfg = await loadConfig();
   const key = normalize(question) + (options.length ? ` [${options.map(normalize).join("|")}]` : "");
-  const store = loadAnswers();
+  const store = await loadAnswers();
   if (store[key]?.answer) return { ...store[key], source: "saved" };
 
   // Built-in exact-ish matches only when they fit the field type.
@@ -56,7 +53,7 @@ export async function answerQuestion({ question, options = [], type = "text", jo
 
   log(`  asking Claude: "${question.slice(0, 80)}"${options.length ? ` options=${options.length}` : ""}`);
   const response = await client.messages.parse({
-    model: MODEL,
+    model: modelFor(cfg),
     max_tokens: 1024,
     output_config: { effort: "low", format: zodOutputFormat(AnswerSchema) },
     system: systemPrompt(profile, cfg),
@@ -80,6 +77,6 @@ ${extra}`,
     r.answer = options[r.optionIndex];
   }
   store[key] = { question, options, answer: r.answer, optionIndex: r.optionIndex, confidence: r.confidence, note: r.note, savedAt: new Date().toISOString() };
-  saveAnswers(store);
+  await saveAnswers(store);
   return { ...store[key], source: "claude" };
 }

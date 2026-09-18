@@ -1,6 +1,5 @@
-import "dotenv/config";
+import "./env.js";
 import Anthropic from "@anthropic-ai/sdk";
-import { loadConfig } from "./store.js";
 
 export const hasApiKey = () => Boolean(process.env.ANTHROPIC_API_KEY);
 
@@ -13,4 +12,7 @@ export function getClient() {
 }
 
 export const client = new Proxy({}, { get: (_, prop) => Reflect.get(getClient(), prop) });
-export const MODEL = loadConfig().model || "claude-opus-5";
+
+export const DEFAULT_MODEL = "claude-opus-5";
+/** Model from the loaded config, falling back to the default. Config is async now, so callers pass it in. */
+export const modelFor = (cfg) => cfg?.model || DEFAULT_MODEL;

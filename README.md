@@ -1,14 +1,21 @@
 # job-apply-tool
 
-Local Next.js app plus CLI that reads your CV, pulls jobs from free public job boards, scores each one against your actual skills with Claude, generates ready-to-paste application materials (cover letter, tailored CV bullets, screening-question answers), and tracks every application through to offer. Everything stays on your machine in JSON files under `data/`.
+Next.js dashboard plus CLI that reads your CV, pulls jobs from free public job boards, scores each one against your actual skills with Claude, generates ready-to-paste application materials (cover letter, tailored CV bullets, screening-question answers), emails recruiters with one click, and tracks every application through to offer.
+
+Data lives in an Upstash Redis database when `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN` are set (required for the hosted dashboard on Vercel), otherwise in local JSON files under `data/`. The CLI on your machine and the hosted dashboard share the same database.
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env        # put your ANTHROPIC_API_KEY in .env
-npm run dev                 # http://localhost:3000
+npm run dev                 # http://localhost:3000, then add keys on the Settings page
 ```
+
+Settings page → API key, database (Upstash Redis REST URL + token) and email (SMTP) are saved to `.env` locally. If you already have local data, copy it into the database once with `node src/cli.js migrate`.
+
+### Hosting the dashboard on Vercel
+
+The dashboard (jobs, scores, tracker, materials, tailored CVs, one-click recruiter emails, settings) runs on Vercel. Set `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `ANTHROPIC_API_KEY` and the `SMTP_*` variables in the project's Environment Variables. Long-running work (searching boards, bulk scoring, LinkedIn Easy Apply with a real Chrome) runs from your machine with the CLI and writes to the same database.
 
 Upload your CV on the Profile page as PDF, Word (.docx) or text (or `cp your-cv.pdf ./cv.pdf && node src/cli.js profile`). Tune target titles, search terms, sources and location preferences on the Settings page.
 
@@ -21,9 +28,10 @@ Upload your CV on the Profile page as PDF, Word (.docx) or text (or `cp your-cv.
 - **Fill sheet** every field an application form asks for, from your CV, with copy buttons.
 - **Tracker** kanban: saved, prepared, applied, interview, offer, rejected.
 - **Profile** structured view of what was extracted from your CV; re-upload to refresh.
-- **Settings** save your Anthropic API key (written to .env, applied immediately), edit config.json, and correct learned form answers.
+- **Recruiter email** when a posting contains a contact address, the job page shows it with one button that writes the cover letter (if not done yet), attaches your tailored CV (or your uploaded base CV), sends the email from your own mailbox over SMTP, and marks the job as applied. Review or edit the draft first if you want. The jobs list has a `has recruiter email` filter.
+- **Settings** Anthropic API key, database, SMTP email account, search/matching config, and learned form answers. Locally these are written to `.env`; on Vercel they come from the project's environment variables.
 
-Long tasks (search, scoring, preparing) run in the background inside the Next server and stream their logs to the dashboard. One task runs at a time.
+Locally, long tasks (search, scoring, preparing) run in the background inside the Next server and stream their logs to the dashboard; one task runs at a time. On Vercel those buttons are replaced by the CLI commands to run on your machine.
 
 ## CLI (same data, same engine)
 

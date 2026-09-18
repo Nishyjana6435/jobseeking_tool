@@ -7,7 +7,7 @@ export default async function JobsPage({ searchParams }) {
   const sp = await searchParams;
   const min = Number(sp.min ?? 0);
   const q = (sp.q || "").toLowerCase();
-  const { rows, config } = getAll();
+  const { rows, config } = await getAll();
 
   let list = rows;
   if (sp.scored) list = list.filter((r) => r.match);
@@ -16,6 +16,7 @@ export default async function JobsPage({ searchParams }) {
   if (sp.status) list = list.filter((r) => r.status === sp.status);
   if (sp.source) list = list.filter((r) => r.source === sp.source);
   if (sp.verdict) list = list.filter((r) => r.match?.verdict === sp.verdict);
+  if (sp.email) list = list.filter((r) => r.emails?.length);
   if (q) list = list.filter((r) => `${r.title} ${r.company} ${r.location}`.toLowerCase().includes(q));
   list = sortByScore(list);
 
@@ -42,6 +43,7 @@ export default async function JobsPage({ searchParams }) {
           </select></label>
         <label className="flex items-center gap-1 text-xs text-gray-400"><input type="checkbox" name="loc" value="ok" defaultChecked={sp.loc === "ok"} /> location ok</label>
         <label className="flex items-center gap-1 text-xs text-gray-400"><input type="checkbox" name="scored" value="1" defaultChecked={!!sp.scored} /> scored only</label>
+        <label className="flex items-center gap-1 text-xs text-gray-400"><input type="checkbox" name="email" value="1" defaultChecked={!!sp.email} /> has recruiter email</label>
         <button className="btn btn-primary" type="submit">Filter</button>
         <Link className="btn" href="/jobs">Reset</Link>
         <span className="ml-auto text-xs text-gray-400">{list.length} jobs</span>
@@ -54,7 +56,8 @@ export default async function JobsPage({ searchParams }) {
             {list.map((r) => (
               <tr key={r.id} className="hover:bg-white/5">
                 <td><div className="flex flex-col gap-1"><ScoreBadge score={r.match?.score} />{r.match && <LocBadge ok={r.match.locationOk} />}</div></td>
-                <td><Link className="text-blue-300 hover:underline" href={`/jobs/${encodeURIComponent(r.id)}`}>{r.title}</Link>{r.match && <div className="text-xs text-gray-500">{r.match.verdict}</div>}</td>
+                <td><Link className="text-blue-300 hover:underline" href={`/jobs/${encodeURIComponent(r.id)}`}>{r.title}</Link>
+                  <div className="flex flex-wrap items-center gap-1 text-xs text-gray-500">{r.match && <span>{r.match.verdict}</span>}{r.emails?.length > 0 && <span className="badge bg-violet-950 text-violet-200" title={r.emails.join(", ")}>✉ email</span>}{r.track?.emailedAt && <span className="badge bg-emerald-950 text-emerald-200">emailed</span>}</div></td>
                 <td>{r.company}</td>
                 <td className="text-gray-300">{r.location}</td>
                 <td className="text-gray-400">{r.source}</td>

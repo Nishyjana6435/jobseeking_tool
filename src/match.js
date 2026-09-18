@@ -1,9 +1,9 @@
 import { log } from "./lib/log.js";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { client, MODEL } from "./lib/client.js";
+import { client, modelFor } from "./lib/client.js";
 import { truncate } from "./lib/html.js";
-import { loadConfig, loadJobs, loadMatches, saveMatches, requireProfile } from "./lib/store.js";
+import { loadConfig, loadJobs, loadMatches, patchMatches, requireProfile } from "./lib/store.js";
 
 const MatchSchema = z.object({
   results: z.array(z.object({
@@ -65,7 +65,8 @@ ${truncate(j.description, 6000)}`;
 }
 
 export async function scoreJobs(jobs, profile, cfg, batchSize = 8, concurrency = 3) {
-  const matches = loadMatches();
+  const MODEL = modelFor(cfg);
+  const matches = {}; // only the results from this run; written incrementally
   const batches = [];
   for (let i = 0; i < jobs.length; i += batchSize) batches.push(jobs.slice(i, i + batchSize));
   let done = 0;
@@ -86,11 +87,12 @@ export async function scoreJobs(jobs, profile, cfg, batchSize = 8, concurrency =
     }
     if (response.stop_reason === "refusal") { log(`  batch ${idx + 1}: model refused; skipping.`); return; }
     if (!response.parsed_output) { log(`  batch ${idx + 1}: unparseable; skipping.`); return; }
+    const fresh = {};
     for (const r of response.parsed_output.results) {
       if (!batch.find((j) => j.id === r.jobId)) continue;
-      matches[r.jobId] = { ...r, scoredAt: new Date().toISOString(), model: MODEL };
+      fresh[r.jobId] = matches[r.jobId] = { ...r, scoredAt: new Date().toISOString(), model: MODEL };
     }
-    saveMatches(matches);
+    await patchMatches(fresh);
     done += batch.length;
     const u = response.usage;
     log(`  scored ${done}/${jobs.length} (batch ${idx + 1}/${batches.length}, tokens in=${u.input_tokens} cached=${u.cache_read_input_tokens ?? 0} out=${u.output_tokens})`);
@@ -117,23 +119,23 @@ export function isLocationEligible(job, cfg) {
 }
 
 export async function match({ limit, all = false } = {}) {
-  const cfg = loadConfig();
-  const profile = requireProfile();
-  const jobs = loadJobs();
-  const matches = loadMatches();
+  const cfg = await loadConfig();
+  const profile = await requireProfile();
+  const jobs = await loadJobs();
+  const matches = await loadMatches();
   const pending = Object.values(jobs)
     .filter((j) => !matches[j.id])
     .filter((j) => all || cfg.scoreOnlyEligibleLocations === false || isLocationEligible(j, cfg))
     .sort((a, b) => b.prefilterScore - a.prefilterScore)
     .slice(0, limit ?? cfg.maxJobsToScore ?? 40);
   if (!pending.length) { log("Nothing new to score."); return matches; }
-  log(`${pending.length} jobs to score with ${MODEL}`);
+  log(`${pending.length} jobs to score with ${modelFor(cfg)}`);
   return scoreJobs(pending, profile, cfg);
 }
 
-export function ranked(minScore = 0) {
-  const jobs = loadJobs();
-  const matches = loadMatches();
+export async function ranked(minScore = 0) {
+  const jobs = await loadJobs();
+  const matches = await loadMatches();
   return Object.values(matches)
     .filter((m) => m.score >= minScore && jobs[m.jobId])
     .sort((a, b) => b.score - a.score)

@@ -1,30 +1,29 @@
 import fs from "node:fs";
 import path from "node:path";
-import { loadJobs, loadMatches, loadTracker, loadProfile, loadConfig } from "./store.js";
+import { loadJobs, loadMatches, loadTracker, loadProfile, loadConfig, loadJob, loadMatch, loadTrack } from "./store.js";
+import { contactEmails } from "./mail.js";
 
-export function getAll() {
-  const jobs = loadJobs();
-  const matches = loadMatches();
-  const tracker = loadTracker();
+export async function getAll() {
+  const [jobs, matches, tracker, profile, config] = await Promise.all([loadJobs(), loadMatches(), loadTracker(), loadProfile(), loadConfig()]);
   const rows = Object.values(jobs).map((j) => ({
     ...j,
     match: matches[j.id] || null,
     track: tracker[j.id] || null,
     status: tracker[j.id]?.status || "new",
+    emails: contactEmails(j),
   }));
-  return { rows, jobs, matches, tracker, profile: loadProfile(), config: loadConfig() };
+  return { rows, jobs, matches, tracker, profile, config };
 }
 
-export function getJob(id) {
-  const { jobs, matches, tracker } = getAll();
-  const job = jobs[id];
+export async function getJob(id) {
+  const [job, match, track] = await Promise.all([loadJob(id), loadMatch(id), loadTrack(id)]);
   if (!job) return null;
-  const track = tracker[id] || null;
-  let materials = null;
-  if (track?.dir) {
+  let materials = track?.materials ?? null;
+  if (!materials && track?.dir) {
+    // Older local data kept materials only on disk.
     try { materials = JSON.parse(fs.readFileSync(path.join(track.dir, "job.json"), "utf8")).materials; } catch {}
   }
-  return { ...job, match: matches[id] || null, track, status: track?.status || "new", materials };
+  return { ...job, match, track, status: track?.status || "new", materials, emails: contactEmails(job) };
 }
 
 export function stats(rows) {

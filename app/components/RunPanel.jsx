@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function RunPanel() {
+export default function RunPanel({ hosted = false }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState(null);
   const [limit, setLimit] = useState(20);
@@ -39,6 +39,15 @@ export default function RunPanel() {
   }
 
   const cur = state?.current;
+  if (hosted) {
+    return (
+      <div className="panel p-4 text-sm text-gray-300">
+        Searching job boards, bulk scoring and LinkedIn automation run from your own machine and write to the same database:
+        <pre className="mt-2 rounded bg-black/40 p-2 text-xs text-gray-300">node src/cli.js run            # search + score new jobs{"\n"}node src/cli.js apply --top 5  # generate materials{"\n"}node src/cli.js easy-apply --top 3</pre>
+        Scoring, materials, tailored CVs and recruiter emails for a single job work from its page here.
+      </div>
+    );
+  }
   return (
     <div className="panel p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">

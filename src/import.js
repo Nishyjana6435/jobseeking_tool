@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { client, MODEL } from "./lib/client.js";
+import { client, modelFor } from "./lib/client.js";
 import { stripHtml, truncate } from "./lib/html.js";
-import { loadJobs, saveJobs } from "./lib/store.js";
+import { loadConfig, patchJobs } from "./lib/store.js";
 import { log } from "./lib/log.js";
 
 const UA = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36" };
@@ -34,6 +34,7 @@ export async function importJobFromUrl(url) {
   const text = truncate(pageText(html), 60000);
   const title = stripHtml(html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "");
 
+  const MODEL = modelFor(await loadConfig());
   log(`Extracting posting with ${MODEL}...`);
   const response = await client.messages.parse({
     model: MODEL,
@@ -46,14 +47,13 @@ export async function importJobFromUrl(url) {
   const j = response.parsed_output;
 
   const id = `manual-${Buffer.from(url).toString("base64url").slice(0, 40)}`;
-  const jobs = loadJobs();
-  jobs[id] = {
+  const job = {
     id, source: "manual", title: j.title, company: j.company, location: j.location, remote: j.remote,
     url, tags: j.tags, jobType: j.jobType, salary: j.salary, postedAt: new Date().toISOString(),
     description: j.description, keywordHits: [], prefilterScore: 99, titleMatch: true, locationBoost: 0,
     foundAt: new Date().toISOString(),
   };
-  saveJobs(jobs);
+  await patchJobs({ [id]: job });
   log(`Saved ${j.title} @ ${j.company} as ${id}`);
-  return jobs[id];
+  return job;
 }

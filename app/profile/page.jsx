@@ -1,15 +1,14 @@
-import { loadProfile, loadConfig } from "@/src/lib/store.js";
+import { loadProfile, loadConfig, loadCvFile } from "@/src/lib/store.js";
 import { uploadCv } from "@/app/actions.js";
 
-export default function ProfilePage() {
-  const p = loadProfile();
-  const cfg = loadConfig();
+export default async function ProfilePage() {
+  const [p, cfg, cvFile] = await Promise.all([loadProfile(), loadConfig(), loadCvFile()]);
   return (
     <div className="space-y-4">
       <section className="panel p-4">
         <h1 className="text-lg font-semibold text-white">CV profile</h1>
         <p className="mt-1 text-xs text-gray-500">PDF, Word (.docx) or plain text. The tailored CV for each job is built from this profile, so make sure it extracted everything.</p>
-        <p className="mt-1 text-sm text-gray-400">Current CV: {cfg.cvPath}{p?.extractedAt ? ` · extracted ${new Date(p.extractedAt).toLocaleString()}` : ""}</p>
+        <p className="mt-1 text-sm text-gray-400">Current CV: {cvFile ? `${cvFile.name} (${Math.round(cvFile.size / 1024)} KB, attached to application emails)` : cfg.cvPath}{p?.extractedAt ? ` · extracted ${new Date(p.extractedAt).toLocaleString()}` : ""}</p>
         <form action={uploadCv} className="mt-3 flex flex-wrap items-center gap-2">
           <input className="input" type="file" name="cv" accept=".pdf,.docx,.txt,.md" required />
           <button className="btn btn-primary" type="submit">Upload and re-extract (about a minute)</button>

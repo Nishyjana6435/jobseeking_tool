@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getAll, stats, sortByScore } from "@/src/lib/data.js";
 import { hasApiKey } from "@/src/lib/client.js";
+import { IS_VERCEL } from "@/src/lib/env.js";
 import RunPanel from "./components/RunPanel.jsx";
 import { ScoreBadge, StatusBadge, LocBadge } from "./components/Badges.jsx";
 
@@ -14,15 +15,15 @@ function Tile({ label, value, href }) {
   return href ? <Link href={href}>{inner}</Link> : inner;
 }
 
-export default function Dashboard() {
-  const { rows, profile } = getAll();
+export default async function Dashboard() {
+  const { rows, profile } = await getAll();
   const s = stats(rows);
   const top = sortByScore(rows.filter((r) => r.match && r.match.locationOk && !["rejected", "skipped"].includes(r.status))).slice(0, 10);
   const pipeline = rows.filter((r) => ["applied", "interview", "offer"].includes(r.status)).sort((a, b) => (b.track?.updatedAt || "").localeCompare(a.track?.updatedAt || ""));
 
   return (
     <div className="space-y-6">
-      {!hasApiKey() && <div className="rounded border border-amber-700 bg-amber-950/40 p-3 text-sm text-amber-200">ANTHROPIC_API_KEY is not set in .env. Scoring and material generation will fail until it is.</div>}
+      {!hasApiKey() && <div className="rounded border border-amber-700 bg-amber-950/40 p-3 text-sm text-amber-200">ANTHROPIC_API_KEY is not set{IS_VERCEL ? " in the Vercel project environment variables" : " (add it on the Settings page)"}. Scoring and material generation will fail until it is.</div>}
       {!profile && <div className="rounded border border-blue-700 bg-blue-950/40 p-3 text-sm text-blue-200">No CV profile yet. <Link className="underline" href="/profile">Upload your CV</Link> to get started.</div>}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
@@ -38,7 +39,7 @@ export default function Dashboard() {
 
       <section>
         <h2 className="mb-2 text-sm font-semibold text-gray-300">Actions</h2>
-        <RunPanel />
+        <RunPanel hosted={IS_VERCEL} />
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
