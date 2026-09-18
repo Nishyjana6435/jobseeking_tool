@@ -3,6 +3,10 @@ import { search } from "../search.js";
 import { match, ranked } from "../match.js";
 import { applyTo } from "../apply.js";
 import { loadConfig, loadTracker } from "./store.js";
+import { IS_VERCEL } from "./env.js";
+import { hasApiKey } from "./client.js";
+
+const BROWSER_TASKS = ["easyapply", "linkedin-login"];
 
 // Singleton on globalThis so it survives Next.js dev HMR reloads.
 const state = globalThis.__jobRunner ??= { current: null, history: [] };
@@ -13,16 +17,20 @@ export function getRunState() {
 
 export function startTask(task, params = {}) {
   if (state.current && !state.current.finishedAt) throw new Error(`A task is already running: ${state.current.task}`);
+  if (["match", "prepare", "run"].includes(task) && !hasApiKey()) throw new Error("ANTHROPIC_API_KEY is not set. Add it on the Settings page" + (IS_VERCEL ? " of your local app, or in the Vercel project environment variables." : "."));
+  if (IS_VERCEL && BROWSER_TASKS.includes(task)) throw new Error("LinkedIn automation needs a Chrome window, so it runs from your own machine: node src/cli.js easy-apply --top 3");
   const run = { id: Date.now().toString(36), task, params, startedAt: new Date().toISOString(), finishedAt: null, ok: null, logs: [] };
   state.current = run;
   const log = (...a) => { run.logs.push(a.map(String).join(" ")); if (run.logs.length > 400) run.logs.shift(); };
   setLogger(log);
 
-  (async () => {
+  // On Vercel the request waits for `run.done`, so keep each task inside the function time limit.
+  const hostedLimit = (n) => (IS_VERCEL ? Math.min(Number(n) || 20, 30) : n ? Number(n) : undefined);
+  run.done = (async () => {
     try {
       const cfg = await loadConfig();
       if (task === "search") await search();
-      else if (task === "match") await match({ limit: params.limit ? Number(params.limit) : undefined });
+      else if (task === "match") await match({ limit: hostedLimit(params.limit) });
       else if (task === "prepare") {
         const min = Number(params.min ?? cfg.minScoreToPrepare ?? 70);
         const tracker = await loadTracker();
@@ -46,7 +54,7 @@ export function startTask(task, params = {}) {
         await loginInteractive();
       } else if (task === "run") {
         await search();
-        await match({});
+        await match({ limit: hostedLimit(params.limit) });
       } else throw new Error(`Unknown task ${task}`);
       run.ok = true;
     } catch (e) {
@@ -57,6 +65,7 @@ export function startTask(task, params = {}) {
       state.history.push(run);
       setLogger(null);
     }
+    return run;
   })();
   return run;
 }

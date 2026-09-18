@@ -52,8 +52,8 @@ export async function prepareOne(id) {
 }
 
 export async function runTask(task, params) {
-  if (IS_VERCEL) throw new Error("Background tasks (search, bulk scoring, LinkedIn automation) run from your own machine: node src/cli.js run");
-  startTask(task, params);
+  const run = startTask(task, params); // throws on Vercel for browser tasks
+  if (IS_VERCEL) await run.done;
 }
 
 export async function saveConfigAction(formData) {

@@ -10,8 +10,9 @@ export default function RunPanel({ hosted = false }) {
   const [applyTop, setApplyTop] = useState(3);
   const [applyMin, setApplyMin] = useState(75);
   const [autoSubmit, setAutoSubmit] = useState(false);
+  const [waiting, setWaiting] = useState(null); // hosted mode: task name while the request is in flight
   const router = useRouter();
-  const running = state?.current && !state.current.finishedAt;
+  const running = waiting != null || (state?.current && !state.current.finishedAt);
 
   async function poll() {
     try {
@@ -24,6 +25,7 @@ export default function RunPanel({ hosted = false }) {
   }
 
   useEffect(() => {
+    if (hosted) return; // no background tasks to poll for on the hosted dashboard
     poll();
     const t = setInterval(poll, 2000);
     return () => clearInterval(t);
@@ -32,6 +34,21 @@ export default function RunPanel({ hosted = false }) {
 
   async function start(task, params = {}) {
     setError(null);
+    if (hosted) {
+      setWaiting(task);
+      setState((s) => ({ ...(s || {}), current: { task, params, startedAt: new Date().toISOString(), finishedAt: null, logs: ["Running on the server. This waits for the task to finish (up to 5 minutes)..."] } }));
+      try {
+        const r = await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task, params }) });
+        const j = await r.json().catch(() => ({ ok: false, error: `${r.status} ${r.statusText}` }));
+        if (j.run) setState((s) => ({ ...(s || {}), current: j.run }));
+        if (!j.ok) setError(j.error || "Task failed");
+        router.refresh();
+      } catch (e) {
+        setError(`${e.message}. The task may have hit the 5 minute limit; run it again or use the CLI for big batches.`);
+        setState((s) => ({ ...(s || {}), current: { ...(s?.current || {}), finishedAt: new Date().toISOString(), ok: false } }));
+      } finally { setWaiting(null); }
+      return;
+    }
     const r = await fetch("/api/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task, params }) });
     const j = await r.json();
     if (!j.ok) setError(j.error);
@@ -39,15 +56,6 @@ export default function RunPanel({ hosted = false }) {
   }
 
   const cur = state?.current;
-  if (hosted) {
-    return (
-      <div className="panel p-4 text-sm text-gray-300">
-        Searching job boards, bulk scoring and LinkedIn automation run from your own machine and write to the same database:
-        <pre className="mt-2 rounded bg-black/40 p-2 text-xs text-gray-300">node src/cli.js run            # search + score new jobs{"\n"}node src/cli.js apply --top 5  # generate materials{"\n"}node src/cli.js easy-apply --top 3</pre>
-        Scoring, materials, tailored CVs and recruiter emails for a single job work from its page here.
-      </div>
-    );
-  }
   return (
     <div className="panel p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -61,6 +69,9 @@ export default function RunPanel({ hosted = false }) {
           <input type="number" className="input w-16" value={top} min={1} max={20} onChange={(e) => setTop(Number(e.target.value))} />
         </span>
         <button className="btn" disabled={running} onClick={() => start("run")}>Search + score all new</button>
+        {hosted ? (
+          <span className="text-xs text-gray-500">Each run waits up to 5 min; scoring is capped at 30 jobs per run here. LinkedIn Easy Apply runs from your machine: <code>node src/cli.js easy-apply --top 3</code></span>
+        ) : (<>
         <span className="mx-1 h-6 border-l border-gray-700" />
         <button className="btn" disabled={running} onClick={() => start("linkedin-login")}>LinkedIn login</button>
         <span className="flex items-center gap-1">
@@ -70,7 +81,8 @@ export default function RunPanel({ hosted = false }) {
           <input type="number" className="input w-16" value={applyMin} min={0} max={100} onChange={(e) => setApplyMin(Number(e.target.value))} />
           <label className="flex items-center gap-1 text-xs text-amber-300"><input type="checkbox" checked={autoSubmit} onChange={(e) => setAutoSubmit(e.target.checked)} /> auto-submit</label>
         </span>
-        {running && <span className="text-sm text-blue-300 animate-pulse">Running {cur.task}...</span>}
+        </>)}
+        {running && <span className="text-sm text-blue-300 animate-pulse">Running {cur?.task || waiting}...</span>}
         {error && <span className="text-sm text-rose-300">{error}</span>}
       </div>
       {cur && (
